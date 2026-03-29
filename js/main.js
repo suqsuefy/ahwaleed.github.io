@@ -27,6 +27,71 @@ function awUID() {
   return Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
 }
 
+/* ---- YouTube helpers ---- */
+/**
+ * Extract a YouTube video ID from any common YouTube URL format.
+ * Returns null if the URL is not a recognisable YouTube link.
+ */
+function ytVideoId(url) {
+  if (!url || url === '#') return null;
+  try {
+    var u = new URL(url);
+    var host = u.hostname.replace(/^(www\.|m\.)/, '');
+    if (host === 'youtu.be') {
+      return u.pathname.slice(1).split('?')[0] || null;
+    }
+    if (host === 'youtube.com') {
+      if (u.pathname.startsWith('/shorts/')) {
+        return u.pathname.split('/shorts/')[1].split('/')[0] || null;
+      }
+      if (u.pathname.startsWith('/embed/')) {
+        return u.pathname.split('/embed/')[1].split('/')[0] || null;
+      }
+      return u.searchParams.get('v') || null;
+    }
+  } catch (e) {}
+  return null;
+}
+
+/** Return the best-available YouTube thumbnail URL for a given video ID */
+function ytThumb(videoId) {
+  return 'https://img.youtube.com/vi/' + videoId + '/hqdefault.jpg';
+}
+
+/* ---- YouTube lightbox ---- */
+(function () {
+  var backdrop = document.getElementById('ytLightbox');
+  var frame    = document.getElementById('ytFrame');
+  if (!backdrop || !frame) return;
+
+  // Open
+  document.addEventListener('click', function (e) {
+    var btn = e.target.closest('[data-yt]');
+    if (!btn) return;
+    e.preventDefault();
+    var videoId = btn.getAttribute('data-yt');
+    frame.src = 'https://www.youtube.com/embed/' + videoId
+      + '?autoplay=1&rel=0&modestbranding=1';
+    backdrop.classList.add('open');
+    document.body.style.overflow = 'hidden';
+  });
+
+  // Close
+  function closeYT() {
+    backdrop.classList.remove('open');
+    frame.src = '';
+    document.body.style.overflow = '';
+  }
+
+  document.getElementById('ytClose').addEventListener('click', closeYT);
+  backdrop.addEventListener('click', function (e) {
+    if (e.target === backdrop) closeYT();
+  });
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape') closeYT();
+  });
+})();
+
 /* ---- Render works grid from localStorage ---- */
 (function () {
   var grid = document.querySelector('.works-grid');
@@ -37,21 +102,40 @@ function awUID() {
     if (!works || !works.length) return; // keep static HTML if no data
 
     grid.innerHTML = works.map(function (w, i) {
-      var delay = (i % 6) * 100;
-      var cat   = w.category || 'creative';
-      var icon  = w.icon || 'fa-film';
-      var link  = w.link && w.link !== '#' ? w.link : '#';
-      var rel   = link !== '#' ? 'noopener noreferrer' : '';
-      var target = link !== '#' ? '_blank' : '_self';
+      var delay  = (i % 6) * 100;
+      var cat    = w.category || 'creative';
+      var icon   = w.icon || 'fa-film';
+      var link   = w.link && w.link !== '#' ? w.link : '#';
+      var ytId   = ytVideoId(link);
+
+      // Build thumbnail area
+      var thumbInner;
+      if (ytId) {
+        // Real YouTube thumbnail — clicking opens the lightbox
+        thumbInner = '<img class="work-yt-thumb" src="' + escHtml(ytThumb(ytId))
+          + '" alt="' + escHtml(w.title || '') + '" loading="lazy" />'
+          + '<div class="work-overlay">'
+          +   '<button class="work-play" data-yt="' + escHtml(ytId) + '" aria-label="مشاهدة">'
+          +     '<i class="fa-brands fa-youtube"></i>'
+          +   '</button>'
+          + '</div>';
+      } else {
+        // No YouTube URL — fallback to coloured icon placeholder
+        var rel    = link !== '#' ? 'noopener noreferrer' : '';
+        var target = link !== '#' ? '_blank' : '_self';
+        thumbInner = '<div class="work-thumb-placeholder ' + cat + '">'
+          +   '<i class="fa-solid ' + escHtml(icon) + '"></i>'
+          + '</div>'
+          + '<div class="work-overlay">'
+          +   '<a href="' + escHtml(link) + '" class="work-play" aria-label="مشاهدة"'
+          +     ' target="' + target + '" rel="' + rel + '">'
+          +     '<i class="fa-solid fa-circle-play"></i>'
+          +   '</a>'
+          + '</div>';
+      }
+
       return '<div class="work-card" data-category="' + cat + '" data-aos="zoom-in" data-aos-delay="' + delay + '">'
-        + '<div class="work-thumb">'
-        +   '<div class="work-thumb-placeholder ' + cat + '"><i class="fa-solid ' + escHtml(icon) + '"></i></div>'
-        +   '<div class="work-overlay">'
-        +     '<a href="' + escHtml(link) + '" class="work-play" aria-label="مشاهدة" target="' + target + '" rel="' + rel + '">'
-        +       '<i class="fa-solid fa-circle-play"></i>'
-        +     '</a>'
-        +   '</div>'
-        + '</div>'
+        + '<div class="work-thumb">' + thumbInner + '</div>'
         + '<div class="work-info">'
         +   '<span class="work-tag">' + escHtml(w.tag || '') + '</span>'
         +   '<h4>' + escHtml(w.title || '') + '</h4>'
@@ -233,18 +317,18 @@ function awUID() {
 
 /* ---- Works filter ---- */
 (function () {
-  const filterBtns = document.querySelectorAll('.filter-btn');
-  const workCards  = document.querySelectorAll('.work-card[data-category]');
+  var filterBtns = document.querySelectorAll('.filter-btn');
   if (!filterBtns.length) return;
 
-  filterBtns.forEach(btn => {
-    btn.addEventListener('click', () => {
-      filterBtns.forEach(b => b.classList.remove('active'));
+  filterBtns.forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      filterBtns.forEach(function (b) { b.classList.remove('active'); });
       btn.classList.add('active');
 
-      const filter = btn.getAttribute('data-filter');
-      workCards.forEach(card => {
-        const show = filter === 'all' || card.getAttribute('data-category') === filter;
+      var filter = btn.getAttribute('data-filter');
+      // Re-query each time so dynamically rendered cards are included
+      document.querySelectorAll('.work-card[data-category]').forEach(function (card) {
+        var show = filter === 'all' || card.getAttribute('data-category') === filter;
         if (show) {
           card.classList.remove('hidden');
         } else {

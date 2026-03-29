@@ -321,8 +321,15 @@
         <input type="text" id="wDesc" placeholder="مثال: 30 حلقة · تحرير كامل · 2024" />
       </div>
       <div class="form-group">
-        <label>رابط المشاهدة</label>
-        <input type="url" id="wLink" placeholder="https://youtube.com/watch?v=..." />
+        <label>رابط يوتيوب أو رابط المشاهدة</label>
+        <input type="url" id="wLink" placeholder="https://youtube.com/watch?v=... أو https://youtu.be/..." />
+        <!-- YouTube thumbnail preview -->
+        <div id="ytPreviewWrap" style="display:none;margin-top:10px;border-radius:10px;overflow:hidden;aspect-ratio:16/9;max-width:240px;background:var(--clr-bg2);">
+          <img id="ytPreviewImg" src="" alt="معاينة" style="width:100%;height:100%;object-fit:cover;display:block;" />
+        </div>
+        <p id="ytPreviewLabel" style="display:none;font-size:0.78rem;color:var(--clr-green);margin-top:6px;">
+          <i class="fa-brands fa-youtube"></i> تم اكتشاف فيديو يوتيوب — سيظهر كصورة مصغرة حقيقية
+        </p>
       </div>
     </div>
     <div class="modal-footer">
@@ -905,6 +912,59 @@ function esc(str) {
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#39;');
 }
+
+/* ============================================================
+   YOUTUBE HELPERS (admin preview)
+   ============================================================ */
+function adminYtId(url) {
+  if (!url || url === '#') return null;
+  try {
+    var u    = new URL(url);
+    var host = u.hostname.replace(/^(www\.|m\.)/, '');
+    if (host === 'youtu.be')    return u.pathname.slice(1).split('?')[0] || null;
+    if (host === 'youtube.com') {
+      if (u.pathname.startsWith('/shorts/')) return u.pathname.split('/shorts/')[1].split('/')[0] || null;
+      if (u.pathname.startsWith('/embed/'))  return u.pathname.split('/embed/')[1].split('/')[0]  || null;
+      return u.searchParams.get('v') || null;
+    }
+  } catch (e) {}
+  return null;
+}
+
+(function () {
+  var linkInput    = document.getElementById('wLink');
+  var previewWrap  = document.getElementById('ytPreviewWrap');
+  var previewImg   = document.getElementById('ytPreviewImg');
+  var previewLabel = document.getElementById('ytPreviewLabel');
+  if (!linkInput) return;
+
+  function updatePreview() {
+    var vid = adminYtId(linkInput.value.trim());
+    if (vid) {
+      previewImg.src         = 'https://img.youtube.com/vi/' + vid + '/hqdefault.jpg';
+      previewWrap.style.display  = '';
+      previewLabel.style.display = '';
+    } else {
+      previewWrap.style.display  = 'none';
+      previewLabel.style.display = 'none';
+      previewImg.src             = '';
+    }
+  }
+
+  linkInput.addEventListener('input', updatePreview);
+
+  // Also refresh preview when the work modal opens for editing
+  var origOpenEditWork = window.openEditWork;
+  // Hook into modal open – run after a tick so the value is set
+  document.getElementById('addWorkBtn').addEventListener('click', function () {
+    setTimeout(updatePreview, 50);
+  });
+  // Override openEditWork to also refresh preview
+  window.openEditWork = function (id) {
+    origOpenEditWork(id);
+    setTimeout(updatePreview, 50);
+  };
+})();
 </script>
 </body>
 </html>
